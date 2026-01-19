@@ -1,0 +1,20 @@
+[project]
+name = "mcp-ltm"
+version = "0.1.0"
+description = "Long-term memory MCP server with tag-based retrieval"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "mcp>=1.0.0",
+    "pyyaml>=6.0",
+]
+
+[project.scripts]
+mcp-ltm = "mcp_ltm.server:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["mcp_ltm"]
