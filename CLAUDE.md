@@ -19,6 +19,11 @@ python test_storage.py  # Run tests
 mcp-ltm                 # Start server (for testing)
 ```
 
+## Code Review
+
+Use `codex review --uncommitted` to get AI review of changes before committing.
+Must be run from this directory so codex can see the repo context.
+
 ## Configuration
 
 **Environment variables:**

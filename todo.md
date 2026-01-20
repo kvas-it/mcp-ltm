@@ -11,10 +11,9 @@ Based on Codex review in `review.md`.
 
 ## Data Integrity Fixes
 
-- [ ] **Dedupe tags to prevent IntegrityError**
-  - Location: `storage.py:253`, `storage.py:434`
-  - Issue: Duplicate tags in input cause INSERT failure after markdown already written
-  - Fix: Dedupe tags on input and/or use `INSERT OR IGNORE`
+- [x] **Dedupe tags to prevent IntegrityError**
+  - Used `dict.fromkeys()` to dedupe after normalization in both `store()` and `update()`
+  - Test added: `test_duplicate_tags_deduped()`
 
 - [ ] **Handle empty input in get_related_tags**
   - Location: `storage.py:502`
@@ -34,7 +33,7 @@ Based on Codex review in `review.md`.
 ## Tests to Add
 
 - [x] Test path traversal rejection for `get`, `update`, `delete`
-- [ ] Test duplicate tags handling in `store`/`update`
+- [x] Test duplicate tags handling in `store`/`update`
 - [ ] Test `get_related_tags([])` returns `[]` without error
 - [ ] Test tag removal doesn't leave zero/negative co-occurrence rows
 

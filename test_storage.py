@@ -234,6 +234,30 @@ def test_update_source():
         assert memory.source == "/path/to/source.md"
 
 
+def test_duplicate_tags_deduped():
+    """Test that duplicate tags are deduped without error."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        storage = MemoryStorage(Path(tmpdir))
+
+        # Store with duplicate tags (including ones that normalize to same value)
+        memory_id, _ = storage.store(
+            title="Test Memory",
+            tags=["Python", "python", "PYTHON", "testing", "testing"],
+            summary="Test",
+            content="Content",
+        )
+
+        # Should succeed and have deduped tags
+        memory = storage.get(memory_id)
+        assert memory is not None
+        assert memory.tags == ["python", "testing"]
+
+        # Update with duplicate tags
+        storage.update(memory_id, tags=["New", "new", "NEW", "tag"])
+        memory = storage.get(memory_id)
+        assert memory.tags == ["new", "tag"]
+
+
 def test_path_traversal_rejected():
     """Test that path traversal attempts are rejected."""
     with tempfile.TemporaryDirectory() as tmpdir:
@@ -355,6 +379,7 @@ if __name__ == "__main__":
     test_config_origins()
     test_source_with_config()
     test_update_source()
+    test_duplicate_tags_deduped()
     test_path_traversal_rejected()
     test_retroactive_origin_contraction()
     print("All tests passed!")

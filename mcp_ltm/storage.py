@@ -246,7 +246,8 @@ class MemoryStorage:
         """Store a new memory. Returns (id, suggested_links)."""
         now = datetime.now(timezone.utc)
         memory_id = self._generate_id(title)
-        normalized_tags = [normalize_tag(t) for t in tags]
+        # Normalize and dedupe tags (duplicates after normalization would cause IntegrityError)
+        normalized_tags = list(dict.fromkeys(normalize_tag(t) for t in tags))
         links = links or []
         contracted_source = self._contract_source(source)
 
@@ -429,7 +430,8 @@ class MemoryStorage:
         if title is not None:
             memory.title = title
         if tags is not None:
-            memory.tags = [normalize_tag(t) for t in tags]
+            # Normalize and dedupe tags
+            memory.tags = list(dict.fromkeys(normalize_tag(t) for t in tags))
         if summary is not None:
             memory.summary = summary
         if content is not None:
