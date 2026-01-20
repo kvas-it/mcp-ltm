@@ -234,6 +234,38 @@ def test_update_source():
         assert memory.source == "/path/to/source.md"
 
 
+def test_link_validation():
+    """Test that invalid links are filtered out."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        storage = MemoryStorage(Path(tmpdir))
+
+        # Create a memory to link to
+        id1, _ = storage.store(
+            title="First Memory",
+            tags=["test"],
+            summary="First",
+            content="Content",
+        )
+
+        # Create second memory with mix of valid and invalid links
+        id2, _ = storage.store(
+            title="Second Memory",
+            tags=["test"],
+            summary="Second",
+            content="Content",
+            links=[id1, "nonexistent-memory", "../bad-id", "also-fake"],
+        )
+
+        # Only the valid link should be stored
+        memory = storage.get(id2)
+        assert memory.links == [id1]
+
+        # Update with invalid links
+        storage.update(id2, links=["nonexistent", id1, "fake"])
+        memory = storage.get(id2)
+        assert memory.links == [id1]
+
+
 def test_cooccurrence_cleanup():
     """Test that co-occurrence rows are deleted when count reaches zero."""
     with tempfile.TemporaryDirectory() as tmpdir:
@@ -426,6 +458,7 @@ if __name__ == "__main__":
     test_config_origins()
     test_source_with_config()
     test_update_source()
+    test_link_validation()
     test_cooccurrence_cleanup()
     test_get_related_tags_empty_input()
     test_duplicate_tags_deduped()

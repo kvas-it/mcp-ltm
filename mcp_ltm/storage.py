@@ -164,6 +164,18 @@ class MemoryStorage:
             slug = f"{base_slug}-{counter}"
         return slug
 
+    def _memory_exists(self, memory_id: str) -> bool:
+        """Check if a memory with the given ID exists."""
+        try:
+            path = self._resolve_memory_path(memory_id)
+            return path.exists()
+        except InvalidMemoryId:
+            return False
+
+    def _validate_links(self, links: list[str]) -> list[str]:
+        """Filter links to only include valid, existing memory IDs."""
+        return [link for link in links if self._memory_exists(link)]
+
     def _resolve_memory_path(self, memory_id: str) -> Path:
         """Resolve memory ID to file path, validating against path traversal.
 
@@ -258,7 +270,8 @@ class MemoryStorage:
         memory_id = self._generate_id(title)
         # Normalize and dedupe tags (duplicates after normalization would cause IntegrityError)
         normalized_tags = list(dict.fromkeys(normalize_tag(t) for t in tags))
-        links = links or []
+        # Validate links - only keep references to existing memories
+        validated_links = self._validate_links(links or [])
         contracted_source = self._contract_source(source)
 
         memory = Memory(
@@ -270,11 +283,12 @@ class MemoryStorage:
             created_at=now,
             accessed_at=now,
             access_count=0,
-            links=links,
+            links=validated_links,
             source=contracted_source,
         )
 
-        # Write markdown file
+        # Write markdown first - orphaned files are less harmful than DB entries
+        # without files (which would make get() return None for visible memories)
         self._write_markdown(memory)
 
         # Update SQLite index
@@ -287,7 +301,7 @@ class MemoryStorage:
             for tag in normalized_tags:
                 conn.execute("INSERT INTO memory_tags (memory_id, tag) VALUES (?, ?)", (memory_id, tag))
 
-            for link in links:
+            for link in validated_links:
                 conn.execute("INSERT OR IGNORE INTO memory_links (from_id, to_id) VALUES (?, ?)", (memory_id, link))
 
             self._update_cooccurrence(conn, normalized_tags)
@@ -447,13 +461,14 @@ class MemoryStorage:
         if content is not None:
             memory.content = content
         if links is not None:
-            memory.links = links
+            memory.links = self._validate_links(links)
         if source is not None:
             memory.source = self._contract_source(source)
 
         memory.accessed_at = datetime.now(timezone.utc)
 
-        # Write updated markdown
+        # Write markdown first - stale files are less harmful than stale DB
+        # (since get() reads from markdown, DB-only updates would be invisible)
         self._write_markdown(memory)
 
         # Update SQLite

@@ -35,7 +35,14 @@ Based on Codex review in `review.md`.
 - [x] Test `get_related_tags([])` returns `[]` without error
 - [x] Test tag removal doesn't leave zero/negative co-occurrence rows
 
-## Non-blocking Improvements (defer)
+## Non-blocking Improvements
 
-- [ ] Wrap store/update in transaction, write markdown after DB succeeds
-- [ ] Validate links refer to existing memory IDs
+- [x] **Document write ordering decision**
+  - Markdown is written first, then DB - orphaned files are less harmful than
+    DB entries without files (which would make get() return None for visible memories)
+  - Added comments explaining this trade-off
+
+- [x] **Validate links refer to existing memory IDs**
+  - Added `_memory_exists()` and `_validate_links()` helpers
+  - Invalid/nonexistent links are silently filtered out
+  - Test added: `test_link_validation()`
