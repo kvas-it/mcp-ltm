@@ -188,6 +188,63 @@ class MemoryStorage:
             )
         return self.base_path / f"{memory_id}.md"
 
+    def _save_tags(self, conn: sqlite3.Connection, memory_id: str, tags: list[str]):
+        """Save tags for a memory, replacing any existing tags."""
+        conn.execute("DELETE FROM memory_tags WHERE memory_id = ?", (memory_id,))
+        for tag in tags:
+            conn.execute("INSERT INTO memory_tags (memory_id, tag) VALUES (?, ?)", (memory_id, tag))
+
+    def _save_links(self, conn: sqlite3.Connection, memory_id: str, links: list[str]):
+        """Save links for a memory, replacing any existing links."""
+        conn.execute("DELETE FROM memory_links WHERE from_id = ?", (memory_id,))
+        for link in links:
+            conn.execute("INSERT OR IGNORE INTO memory_links (from_id, to_id) VALUES (?, ?)", (memory_id, link))
+
+    def _find_suggested_links(self, conn: sqlite3.Connection, tags: list[str],
+                              exclude_id: str, limit: int = 5) -> list[str]:
+        """Find memories with highest tag overlap, excluding the given ID."""
+        if not tags:
+            return []
+        placeholders = ",".join("?" * len(tags))
+        rows = conn.execute(f"""
+            SELECT memory_id, COUNT(*) as overlap
+            FROM memory_tags
+            WHERE tag IN ({placeholders}) AND memory_id != ?
+            GROUP BY memory_id
+            ORDER BY overlap DESC
+            LIMIT ?
+        """, (*tags, exclude_id, limit)).fetchall()
+        return [row[0] for row in rows]
+
+    def _insert_memory(self, conn: sqlite3.Connection, memory: Memory):
+        """Insert a new memory record into the database."""
+        conn.execute("""
+            INSERT INTO memories (id, title, summary, source, created_at, accessed_at, access_count)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+        """, (memory.id, memory.title, memory.summary, memory.source,
+              memory.created_at.isoformat(), memory.accessed_at.isoformat(), memory.access_count))
+
+    def _row_to_result(self, row: sqlite3.Row, include_content: bool = False) -> dict:
+        """Convert a database row to a result dictionary."""
+        result = {
+            "id": row["id"],
+            "title": row["title"],
+            "summary": row["summary"],
+            "tags": row["tags_str"].split(",") if row["tags_str"] else [],
+            "created_at": row["created_at"],
+        }
+        if row["source"]:
+            expanded, warning = self._expand_source(row["source"])
+            result["source"] = expanded
+            if warning:
+                result["source_warning"] = warning
+        if include_content:
+            memory = self._read_markdown(row["id"])
+            if memory:
+                result["content"] = memory.content
+                result["links"] = memory.links
+        return result
+
     def _update_cooccurrence(self, conn: sqlite3.Connection, tags: list[str], delta: int = 1):
         """Update tag co-occurrence counts."""
         for i, tag1 in enumerate(tags):
@@ -293,33 +350,12 @@ class MemoryStorage:
 
         # Update SQLite index
         with self._connect() as conn:
-            conn.execute("""
-                INSERT INTO memories (id, title, summary, source, created_at, accessed_at, access_count)
-                VALUES (?, ?, ?, ?, ?, ?, ?)
-            """, (memory_id, title, summary, contracted_source, now.isoformat(), now.isoformat(), 0))
-
-            for tag in normalized_tags:
-                conn.execute("INSERT INTO memory_tags (memory_id, tag) VALUES (?, ?)", (memory_id, tag))
-
-            for link in validated_links:
-                conn.execute("INSERT OR IGNORE INTO memory_links (from_id, to_id) VALUES (?, ?)", (memory_id, link))
+            self._insert_memory(conn, memory)
+            self._save_tags(conn, memory_id, normalized_tags)
+            self._save_links(conn, memory_id, validated_links)
 
             self._update_cooccurrence(conn, normalized_tags)
-
-            # Find suggested links (memories with highest tag overlap)
-            if normalized_tags:
-                placeholders = ",".join("?" * len(normalized_tags))
-                suggested = conn.execute(f"""
-                    SELECT memory_id, COUNT(*) as overlap
-                    FROM memory_tags
-                    WHERE tag IN ({placeholders}) AND memory_id != ?
-                    GROUP BY memory_id
-                    ORDER BY overlap DESC
-                    LIMIT 5
-                """, (*normalized_tags, memory_id)).fetchall()
-                suggested_links = [row[0] for row in suggested]
-            else:
-                suggested_links = []
+            suggested_links = self._find_suggested_links(conn, normalized_tags, memory_id)
 
         return memory_id, suggested_links
 
@@ -384,32 +420,7 @@ class MemoryStorage:
 
                 rows = conn.execute(query, params).fetchall()
 
-            results = []
-            for row in rows:
-                memory_dict = {
-                    "id": row["id"],
-                    "title": row["title"],
-                    "summary": row["summary"],
-                    "tags": row["tags_str"].split(",") if row["tags_str"] else [],
-                    "created_at": row["created_at"],
-                }
-
-                # Expand source path
-                if row["source"]:
-                    expanded, warning = self._expand_source(row["source"])
-                    memory_dict["source"] = expanded
-                    if warning:
-                        memory_dict["source_warning"] = warning
-
-                if include_content:
-                    memory = self._read_markdown(row["id"])
-                    if memory:
-                        memory_dict["content"] = memory.content
-                        memory_dict["links"] = memory.links
-
-                results.append(memory_dict)
-
-            return results
+            return [self._row_to_result(row, include_content) for row in rows]
 
     def get(self, memory_id: str) -> Memory | None:
         """Get a memory by ID, updating access stats."""
@@ -480,19 +491,12 @@ class MemoryStorage:
             """, (memory.title, memory.summary, memory.source, memory.accessed_at.isoformat(), memory_id))
 
             if tags is not None:
-                # Update tags
-                conn.execute("DELETE FROM memory_tags WHERE memory_id = ?", (memory_id,))
-                for tag in memory.tags:
-                    conn.execute("INSERT INTO memory_tags (memory_id, tag) VALUES (?, ?)", (memory_id, tag))
-
-                # Update co-occurrence
+                self._save_tags(conn, memory_id, memory.tags)
                 self._update_cooccurrence(conn, old_tags, delta=-1)
                 self._update_cooccurrence(conn, memory.tags, delta=1)
 
             if links is not None:
-                conn.execute("DELETE FROM memory_links WHERE from_id = ?", (memory_id,))
-                for link in memory.links:
-                    conn.execute("INSERT OR IGNORE INTO memory_links (from_id, to_id) VALUES (?, ?)", (memory_id, link))
+                self._save_links(conn, memory_id, memory.links)
 
         return memory
 
