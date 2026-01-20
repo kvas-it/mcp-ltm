@@ -85,9 +85,15 @@ class MemoryStorage:
         self.config = config
         self._init_db()
 
+    def _connect(self) -> sqlite3.Connection:
+        """Create a database connection with foreign keys enabled."""
+        conn = sqlite3.connect(self.db_path)
+        conn.execute("PRAGMA foreign_keys=ON")
+        return conn
+
     def _init_db(self):
         """Initialize SQLite database schema."""
-        with sqlite3.connect(self.db_path) as conn:
+        with self._connect() as conn:
             conn.executescript("""
                 CREATE TABLE IF NOT EXISTS memories (
                     id TEXT PRIMARY KEY,
@@ -187,6 +193,10 @@ class MemoryStorage:
                         WHERE tag1 = ? AND tag2 = ?
                     """, (delta, t1, t2))
 
+        # Clean up rows with zero or negative counts
+        if delta < 0:
+            conn.execute("DELETE FROM tag_cooccurrence WHERE count <= 0")
+
     def _write_markdown(self, memory: Memory):
         """Write memory to markdown file."""
         metadata = {
@@ -268,7 +278,7 @@ class MemoryStorage:
         self._write_markdown(memory)
 
         # Update SQLite index
-        with sqlite3.connect(self.db_path) as conn:
+        with self._connect() as conn:
             conn.execute("""
                 INSERT INTO memories (id, title, summary, source, created_at, accessed_at, access_count)
                 VALUES (?, ?, ?, ?, ?, ?, ?)
@@ -310,7 +320,7 @@ class MemoryStorage:
         normalized_tags = [normalize_tag(t) for t in tags]
         required_tags = [normalize_tag(t) for t in (required_tags or [])]
 
-        with sqlite3.connect(self.db_path) as conn:
+        with self._connect() as conn:
             conn.row_factory = sqlite3.Row
 
             if not normalized_tags and not required_tags:
@@ -401,7 +411,7 @@ class MemoryStorage:
         self._write_markdown(memory)
 
         # Update SQLite
-        with sqlite3.connect(self.db_path) as conn:
+        with self._connect() as conn:
             conn.execute("""
                 UPDATE memories
                 SET accessed_at = ?, access_count = access_count + 1
@@ -447,7 +457,7 @@ class MemoryStorage:
         self._write_markdown(memory)
 
         # Update SQLite
-        with sqlite3.connect(self.db_path) as conn:
+        with self._connect() as conn:
             conn.execute("""
                 UPDATE memories
                 SET title = ?, summary = ?, source = ?, accessed_at = ?
@@ -483,7 +493,7 @@ class MemoryStorage:
         file_path.unlink()
 
         # Delete from SQLite
-        with sqlite3.connect(self.db_path) as conn:
+        with self._connect() as conn:
             conn.execute("DELETE FROM memories WHERE id = ?", (memory_id,))
             conn.execute("DELETE FROM memory_tags WHERE memory_id = ?", (memory_id,))
             conn.execute("DELETE FROM memory_links WHERE from_id = ? OR to_id = ?", (memory_id, memory_id))
@@ -495,7 +505,7 @@ class MemoryStorage:
 
     def get_tags(self, include_examples: bool = False, examples_per_tag: int = 2) -> list[dict]:
         """Get all tags with counts and optional examples."""
-        with sqlite3.connect(self.db_path) as conn:
+        with self._connect() as conn:
             conn.row_factory = sqlite3.Row
 
             tags = conn.execute("""
@@ -526,9 +536,12 @@ class MemoryStorage:
 
     def get_related_tags(self, tags: list[str], limit: int = 10) -> list[dict]:
         """Get tags that frequently co-occur with the given tags."""
-        normalized_tags = [normalize_tag(t) for t in tags]
+        normalized_tags = [t for t in (normalize_tag(t) for t in tags) if t]
 
-        with sqlite3.connect(self.db_path) as conn:
+        if not normalized_tags:
+            return []
+
+        with self._connect() as conn:
             # Find tags that co-occur with any of the input tags
             placeholders = ",".join("?" * len(normalized_tags))
 
@@ -552,7 +565,7 @@ class MemoryStorage:
         min_access_count: int | None = None,
     ) -> list[dict]:
         """Get memories that might be candidates for pruning."""
-        with sqlite3.connect(self.db_path) as conn:
+        with self._connect() as conn:
             conn.row_factory = sqlite3.Row
 
             conditions = []
@@ -587,7 +600,7 @@ class MemoryStorage:
         prefix = origin_path + "/"
         updated_ids = []
 
-        with sqlite3.connect(self.db_path) as conn:
+        with self._connect() as conn:
             # Find memories with sources that match this origin
             rows = conn.execute(
                 "SELECT id, source FROM memories WHERE source IS NOT NULL"

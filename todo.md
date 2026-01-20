@@ -15,27 +15,25 @@ Based on Codex review in `review.md`.
   - Used `dict.fromkeys()` to dedupe after normalization in both `store()` and `update()`
   - Test added: `test_duplicate_tags_deduped()`
 
-- [ ] **Handle empty input in get_related_tags**
-  - Location: `storage.py:502`
-  - Issue: Empty `tags=[]` produces invalid SQL `IN ()`
-  - Fix: Early-return `[]` when `normalized_tags` is empty
+- [x] **Handle empty input in get_related_tags**
+  - Early-return `[]` when `normalized_tags` is empty
+  - Also filters out empty strings after normalization
+  - Test added: `test_get_related_tags_empty_input()`
 
-- [ ] **Clean up zero/negative co-occurrence counts**
-  - Location: `storage.py:150`
-  - Issue: Rows never deleted when count reaches 0, can go negative
-  - Fix: Delete rows when count <= 0
+- [x] **Clean up zero/negative co-occurrence counts**
+  - Delete rows with `count <= 0` after decrementing
+  - Test added: `test_cooccurrence_cleanup()`
 
-- [ ] **Enable foreign key enforcement**
-  - Location: `storage.py:77`
-  - Issue: SQLite FKs not enforced without `PRAGMA foreign_keys=ON`
-  - Fix: Set pragma on each connection
+- [x] **Enable foreign key enforcement**
+  - Added `_connect()` helper that runs `PRAGMA foreign_keys=ON`
+  - All DB connections now use the helper
 
 ## Tests to Add
 
 - [x] Test path traversal rejection for `get`, `update`, `delete`
 - [x] Test duplicate tags handling in `store`/`update`
-- [ ] Test `get_related_tags([])` returns `[]` without error
-- [ ] Test tag removal doesn't leave zero/negative co-occurrence rows
+- [x] Test `get_related_tags([])` returns `[]` without error
+- [x] Test tag removal doesn't leave zero/negative co-occurrence rows
 
 ## Non-blocking Improvements (defer)
 

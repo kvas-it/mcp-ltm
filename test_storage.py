@@ -234,6 +234,53 @@ def test_update_source():
         assert memory.source == "/path/to/source.md"
 
 
+def test_cooccurrence_cleanup():
+    """Test that co-occurrence rows are deleted when count reaches zero."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        storage = MemoryStorage(Path(tmpdir))
+
+        # Create a memory with tags that will co-occur
+        memory_id, _ = storage.store(
+            title="Test Memory",
+            tags=["python", "testing"],
+            summary="Test",
+            content="Content",
+        )
+
+        # Verify co-occurrence exists
+        related = storage.get_related_tags(["python"])
+        assert any(r["tag"] == "testing" for r in related)
+
+        # Delete the memory - should clean up co-occurrence
+        storage.delete(memory_id)
+
+        # Co-occurrence should be gone (count was 1, now 0)
+        related = storage.get_related_tags(["python"])
+        assert not any(r["tag"] == "testing" for r in related)
+
+        # Verify no zero-count rows remain in the table
+        import sqlite3
+        with sqlite3.connect(storage.db_path) as conn:
+            rows = conn.execute(
+                "SELECT * FROM tag_cooccurrence WHERE count <= 0"
+            ).fetchall()
+            assert len(rows) == 0
+
+
+def test_get_related_tags_empty_input():
+    """Test that get_related_tags handles empty input without SQL error."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        storage = MemoryStorage(Path(tmpdir))
+
+        # Empty list should return empty list, not SQL error
+        result = storage.get_related_tags([])
+        assert result == []
+
+        # Also test with tags that normalize to empty (edge case)
+        result = storage.get_related_tags(["", "   "])
+        assert result == []
+
+
 def test_duplicate_tags_deduped():
     """Test that duplicate tags are deduped without error."""
     with tempfile.TemporaryDirectory() as tmpdir:
@@ -379,6 +426,8 @@ if __name__ == "__main__":
     test_config_origins()
     test_source_with_config()
     test_update_source()
+    test_cooccurrence_cleanup()
+    test_get_related_tags_empty_input()
     test_duplicate_tags_deduped()
     test_path_traversal_rejected()
     test_retroactive_origin_contraction()
