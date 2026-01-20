@@ -93,3 +93,7 @@ Or with custom paths:
 3. **Origin system**: Short portable paths (`project:path/file.md`) that expand to full paths
 4. **Two-tier memory**: Pure memories (self-contained) and reference memories (point to external docs)
 5. **Access tracking**: Timestamps and counts for staleness detection
+6. **Write ordering**: Markdown first, then DB - orphaned files are less harmful than
+   DB entries without files (which would make `get()` return None for visible memories)
+7. **Link validation**: Links to nonexistent memories are silently filtered out
+8. **Memory ID validation**: IDs must match `^[\w-]+$` to prevent path traversal
