@@ -9,7 +9,7 @@ from mcp.server.stdio import stdio_server
 from mcp.types import Tool, TextContent
 
 from .config import Config
-from .storage import MemoryStorage
+from .storage import MemoryStorage, InvalidMemoryId
 
 # Default paths - can be overridden via environment variables
 DEFAULT_BASE_PATH = Path.home() / ".local" / "share" / "mcp-ltm"
@@ -293,7 +293,11 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
         )
 
     elif name == "get_memory":
-        memory = store.get(arguments["id"])
+        try:
+            memory = store.get(arguments["id"])
+        except InvalidMemoryId as e:
+            result = {"error": str(e)}
+            return [TextContent(type="text", text=json.dumps(result, indent=2))]
         if memory is None:
             result = {"error": f"Memory not found: {arguments['id']}"}
         else:
@@ -328,22 +332,30 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
         )
 
     elif name == "update_memory":
-        memory = store.update(
-            memory_id=arguments["id"],
-            title=arguments.get("title"),
-            tags=arguments.get("tags"),
-            summary=arguments.get("summary"),
-            content=arguments.get("content"),
-            links=arguments.get("links"),
-            source=arguments.get("source"),
-        )
+        try:
+            memory = store.update(
+                memory_id=arguments["id"],
+                title=arguments.get("title"),
+                tags=arguments.get("tags"),
+                summary=arguments.get("summary"),
+                content=arguments.get("content"),
+                links=arguments.get("links"),
+                source=arguments.get("source"),
+            )
+        except InvalidMemoryId as e:
+            result = {"error": str(e)}
+            return [TextContent(type="text", text=json.dumps(result, indent=2))]
         if memory is None:
             result = {"error": f"Memory not found: {arguments['id']}"}
         else:
             result = {"id": memory.id, "updated": True}
 
     elif name == "delete_memory":
-        success = store.delete(arguments["id"])
+        try:
+            success = store.delete(arguments["id"])
+        except InvalidMemoryId as e:
+            result = {"error": str(e)}
+            return [TextContent(type="text", text=json.dumps(result, indent=2))]
         result = {"deleted": success}
 
     elif name == "get_stale_memories":

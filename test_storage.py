@@ -4,7 +4,7 @@ import tempfile
 from pathlib import Path
 
 from mcp_ltm.config import Config
-from mcp_ltm.storage import MemoryStorage, slugify, normalize_tag
+from mcp_ltm.storage import MemoryStorage, slugify, normalize_tag, InvalidMemoryId
 
 
 def test_slugify():
@@ -234,6 +234,63 @@ def test_update_source():
         assert memory.source == "/path/to/source.md"
 
 
+def test_path_traversal_rejected():
+    """Test that path traversal attempts are rejected."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        storage = MemoryStorage(Path(tmpdir))
+
+        # Store a valid memory first
+        storage.store(
+            title="Valid Memory",
+            tags=["test"],
+            summary="Test",
+            content="Content",
+        )
+
+        # Path traversal attempts should raise InvalidMemoryId
+        # These contain characters not in [\w-]: slashes, dots, spaces, etc.
+        traversal_ids = [
+            "../etc/passwd",
+            "..%2F..%2Fetc/passwd",
+            "foo/../../../etc/passwd",
+            "has spaces",
+            "has.dot",
+            "has/slash",
+        ]
+
+        for bad_id in traversal_ids:
+            try:
+                storage.get(bad_id)
+                assert False, f"Should have raised InvalidMemoryId for {bad_id!r}"
+            except InvalidMemoryId:
+                pass
+
+            try:
+                storage.update(bad_id, content="hacked")
+                assert False, f"Should have raised InvalidMemoryId for {bad_id!r}"
+            except InvalidMemoryId:
+                pass
+
+            try:
+                storage.delete(bad_id)
+                assert False, f"Should have raised InvalidMemoryId for {bad_id!r}"
+            except InvalidMemoryId:
+                pass
+
+        # Valid IDs should work (backwards compat with slugify)
+        # These return None (not found) but don't raise InvalidMemoryId
+        valid_ids = [
+            "valid_with_underscore",
+            "UPPERCASE",  # \w includes uppercase
+            "café",  # Unicode letters allowed
+            "日本語",  # Non-latin scripts
+        ]
+        for valid_id in valid_ids:
+            assert storage.get(valid_id) is None
+            assert storage.update(valid_id, content="test") is None
+            assert storage.delete(valid_id) is False
+
+
 def test_retroactive_origin_contraction():
     """Test that adding an origin contracts existing full-path sources."""
     with tempfile.TemporaryDirectory() as tmpdir:
@@ -298,5 +355,6 @@ if __name__ == "__main__":
     test_config_origins()
     test_source_with_config()
     test_update_source()
+    test_path_traversal_rejected()
     test_retroactive_origin_contraction()
     print("All tests passed!")

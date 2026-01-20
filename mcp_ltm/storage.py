@@ -15,6 +15,17 @@ if TYPE_CHECKING:
     from .config import Config
 
 
+# Valid memory ID: word characters (letters, digits, underscores) and hyphens
+# Uses \w to match Unicode letters for backwards compatibility with slugify
+MEMORY_ID_PATTERN = re.compile(r"^[\w-]+$")
+
+
+class InvalidMemoryId(ValueError):
+    """Raised when a memory ID contains invalid characters."""
+
+    pass
+
+
 @dataclass
 class Memory:
     id: str
@@ -147,6 +158,18 @@ class MemoryStorage:
             slug = f"{base_slug}-{counter}"
         return slug
 
+    def _resolve_memory_path(self, memory_id: str) -> Path:
+        """Resolve memory ID to file path, validating against path traversal.
+
+        Raises InvalidMemoryId if the ID contains invalid characters.
+        """
+        if not MEMORY_ID_PATTERN.match(memory_id):
+            raise InvalidMemoryId(
+                f"Invalid memory ID: {memory_id!r}. "
+                "Must contain only letters, digits, hyphens, and underscores."
+            )
+        return self.base_path / f"{memory_id}.md"
+
     def _update_cooccurrence(self, conn: sqlite3.Connection, tags: list[str], delta: int = 1):
         """Update tag co-occurrence counts."""
         for i, tag1 in enumerate(tags):
@@ -188,7 +211,7 @@ class MemoryStorage:
 
     def _read_markdown(self, memory_id: str) -> Memory | None:
         """Read memory from markdown file."""
-        file_path = self.base_path / f"{memory_id}.md"
+        file_path = self._resolve_memory_path(memory_id)
         if not file_path.exists():
             return None
 
@@ -448,7 +471,7 @@ class MemoryStorage:
 
     def delete(self, memory_id: str) -> bool:
         """Delete a memory."""
-        file_path = self.base_path / f"{memory_id}.md"
+        file_path = self._resolve_memory_path(memory_id)
         if not file_path.exists():
             return False
 
